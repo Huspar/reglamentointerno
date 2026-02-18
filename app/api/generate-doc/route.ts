@@ -21,7 +21,7 @@ import {
 } from "@/lib/reglamentoBuilder";
 import { auditReglamento } from "@/lib/reglamentoAuditor";
 import { sectionsToDocx } from "@/app/api/generate-doc/generate-local";
-import { logAuditEvent, AuditTelemetryEvent } from "@/lib/telemetry";
+import { sql } from '@vercel/postgres';
 import { v4 as uuidv4 } from 'uuid';
 
 /* ───── Roman numerals ───── */
@@ -534,20 +534,38 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        /* ─── TELEMETRY LOGGING (BACKGROUND) ─── */
+        /* ─── TELEMETRY LOGGING (POSTGRES) ─── */
         try {
             const variant = determineVariant(data);
-            const event: AuditTelemetryEvent = {
-                id: uuidv4(),
-                createdAt: new Date().toISOString(),
-                modelVariant: variant,
-                issues: result.issues.map(i => ({ severity: i.severity, code: i.code })),
-                autofixApplied: data.flexibleLegalWording === true,
-                fixes: rigidIssues.map(i => ({ code: i.code, count: 1 })) // Simplified fix tracking
-            };
-            logAuditEvent(event);
+            const issuesJson = JSON.stringify(result.issues.map(i => ({ severity: i.severity, code: i.code })));
+            const fixesJson = JSON.stringify(rigidIssues.map(i => ({ code: i.code, count: 1 })));
+            const errorCount = result.issues.filter(i => i.severity === 'error').length;
+            const warnCount = result.issues.filter(i => i.severity === 'warn').length;
+            const hasError = errorCount > 0;
+            const autofixApplied = data.flexibleLegalWording === true;
+
+            // Non-blocking fire-and-forget (ish) - await to ensure it runs in lambda
+            await sql`
+                INSERT INTO audit_events (
+                    model_variant, 
+                    issues, 
+                    fixes, 
+                    autofix_applied, 
+                    has_error, 
+                    error_count, 
+                    warn_count
+                ) VALUES (
+                    ${variant}, 
+                    ${issuesJson}::jsonb, 
+                    ${fixesJson}::jsonb, 
+                    ${autofixApplied}, 
+                    ${hasError}, 
+                    ${errorCount}, 
+                    ${warnCount}
+                );
+            `;
         } catch (e) {
-            console.error("Telemetry error:", e);
+            console.error("Telemetry error (DB):", e);
         }
 
         const doc = sectionsToDocx(fixedSections, data);
