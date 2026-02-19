@@ -1,0 +1,29 @@
+{
+    "razonSocial": "Empresa Test Curl SpA",
+    "rutEmpresa": "76.123.456-7",
+    "nombreCompleto": "Juan Pérez",
+    "rutRepresentante": "12.345.678-9",
+    "domicilio": "Av. Providencia 1234",
+    "comuna": "Providencia",
+    "region": "Metropolitana",
+    "rubro": "Tecnología",
+    "numTrabajadores": "10-25",
+    "trabajoRemoto": "si",
+    "usoEPP": "no",
+    "comiteParitario": "no",
+    "horario": "Lunes a Viernes 09:00 a 18:00",
+    "jornadaGeneral": "44 horas semanales",
+    "tipoProcedimiento": "general",
+    "cargo": "Gerente General",
+    "email": "contacto@empresa.cl",
+    "flexibleLegalWording": true,
+    "giro": "Desarrollo de Software",
+    "categoriaRiesgo": "servicios_oficina",
+    "controlAsistencia": "si",
+    "mutualidad": "ACHS",
+    "prohibiciones": [
+        "consumo_alcohol",
+        "acoso"
+    ],
+    "procedimientoDisciplinario": ""
+}

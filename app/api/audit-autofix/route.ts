@@ -1,6 +1,6 @@
 
 import { NextRequest, NextResponse } from "next/server";
-import { ReglamentoData } from "@/lib/reglamentoBuilder";
+import { ReglamentoData } from "@/lib/builder";
 
 export async function POST(request: NextRequest) {
     try {

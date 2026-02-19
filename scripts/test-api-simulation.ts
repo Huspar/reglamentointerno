@@ -1,5 +1,5 @@
 
-import { ReglamentoData } from "../lib/reglamentoBuilder";
+import { buildReglamento, ReglamentoData } from "../lib/builder";
 
 const mockData: ReglamentoData = {
     razonSocial: "Test Corp AutoFix",
@@ -41,7 +41,7 @@ async function testApi() {
     // Let's use the PREVIOUS method: `scripts/test-autofix.ts` but updated to simulate the LOOP.
     // This confirms the LOGIC is correct, even if we don't hit the HTTP layer.
 
-    const { buildReglamento } = await import("../lib/reglamentoBuilder");
+    const { buildReglamento } = await import("../lib/builder");
     const { auditReglamento } = await import("../lib/reglamentoAuditor");
 
     console.log("\n👉 SIMULATION: Server-Side Logic");

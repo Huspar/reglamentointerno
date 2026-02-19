@@ -23,7 +23,7 @@ export type AuditResult = {
     };
 };
 
-import { ReglamentoData } from "./reglamentoBuilder";
+import { ReglamentoSection, ReglamentoData, ContentItem } from "./builder/types";
 
 export function auditReglamento(
     sections: Array<{ title: string; content: any[] }>,

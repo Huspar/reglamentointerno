@@ -1,5 +1,5 @@
 
-import { buildReglamento, ReglamentoData } from "../lib/reglamentoBuilder";
+import { buildReglamento, ReglamentoData } from "../lib/builder";
 import { auditReglamento } from "../lib/reglamentoAuditor";
 
 const mockData: ReglamentoData = {

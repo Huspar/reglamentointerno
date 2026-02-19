@@ -13,15 +13,11 @@ import {
     convertMillimetersToTwip,
     LineRuleType,
 } from "docx";
-import {
-    buildReglamento,
-    type ReglamentoData,
-    type ReglamentoSection,
-    type ContentItem,
-} from "@/lib/reglamentoBuilder";
+import { buildReglamento, type ReglamentoData, type ReglamentoSection, type ContentItem } from "@/lib/builder";
 import { auditReglamento } from "@/lib/reglamentoAuditor";
-import { sectionsToDocx } from "@/app/api/generate-doc/generate-local";
-import { sql } from '@vercel/postgres';
+
+import { db } from "@/lib/db";
+import { auditEvents } from "@/lib/db/schema";
 import { v4 as uuidv4 } from 'uuid';
 
 /* ───── Roman numerals ───── */
@@ -329,7 +325,7 @@ function plainParagraph(text: string): Paragraph {
 /* ═══════════════════════════════════════════
    ASSEMBLER: Secciones → DOCX
    ═══════════════════════════════════════════ */
-function sectionsToDocx(
+function generateDocxFromSections(
     sections: ReglamentoSection[],
     data: ReglamentoData
 ): Document {
@@ -475,8 +471,52 @@ export async function POST(request: NextRequest) {
                 { status: 400 }
             );
         }
+
+        /* ─── RATE LIMIT CHECK ─── */
+        // Get client IP using standard headers
+        const forwarded = request.headers.get("x-forwarded-for");
+        const ip = forwarded ? forwarded.split(',')[0] : "127.0.0.1";
+
+        // Only check rate limit in production
+        if (process.env.NODE_ENV === "production") {
+            const { checkRateLimit } = await import("@/lib/rate-limit");
+            const allowed = await checkRateLimit(ip);
+            if (!allowed) {
+                return NextResponse.json(
+                    { error: "Has excedido el límite de generaciones por hora. Intenta más tarde." },
+                    { status: 429 }
+                );
+            }
+        }
+        /* ─── PROMOTION CHECK (PRE-FLIGHT) ─── */
+        // Check if any fixes have been promoted to default behavior
+        // In a high-traffic app, we would cache this or use a config service. 
+        // For now, a quick DB lookup is fine.
+        try {
+            // const promoRes = await sql`SELECT fix_code FROM builder_promotions WHERE promoted = true`;
+            // Drizzle replacement:
+            const { builderPromotions } = await import("@/lib/db/schema");
+            const { eq } = await import("drizzle-orm");
+
+            const promotedItems = await db.select({ fixCode: builderPromotions.fix_code })
+                .from(builderPromotions)
+                .where(eq(builderPromotions.promoted, true));
+
+            const promotedCodes = promotedItems.map(r => r.fixCode);
+
+            if (promotedCodes.includes('ARTICULO_9_RIGIDO') ||
+                promotedCodes.includes('PROHIBITED_STRING') ||
+                promotedCodes.includes('REFERENCIA_AUTORIDAD_RIGIDA')) {
+                // If these are promoted, we enable flexible wording by default
+                // This prevents them from being flagged as issues/fixes again
+                data.flexibleLegalWording = true;
+            }
+        } catch (e) {
+            console.error("Error checking promotions:", e);
+        }
+
         /* ─── AUDITORÍA AUTOMÁTICA (PASS 1) ─── */
-        // Primera pasada: Generamos y auditamos con la data original
+        // Primera pasada: Generamos y auditamos con la data original (o modificada por promociones)
         let sections = buildReglamento(data);
         let audit = auditReglamento(sections, data, { mode: "strict", enableAutofix: true });
 
@@ -535,43 +575,34 @@ export async function POST(request: NextRequest) {
         }
 
         /* ─── TELEMETRY LOGGING (POSTGRES) ─── */
+        // Non-blocking fire-and-forget (ish) - await to ensure it runs in lambda
         try {
             const variant = determineVariant(data);
-            const issuesJson = JSON.stringify(result.issues.map(i => ({ severity: i.severity, code: i.code })));
-            const fixesJson = JSON.stringify(rigidIssues.map(i => ({ code: i.code, count: 1 })));
+            const issuesData = result.issues.map(i => ({ severity: i.severity, code: i.code }));
+            const fixesData = rigidIssues.map(i => ({ code: i.code, count: 1 }));
             const errorCount = result.issues.filter(i => i.severity === 'error').length;
             const warnCount = result.issues.filter(i => i.severity === 'warn').length;
             const hasError = errorCount > 0;
-            const autofixApplied = data.flexibleLegalWording === true;
+            const autofixApplied = rigidIssues.length > 0;
 
             // Non-blocking fire-and-forget (ish) - await to ensure it runs in lambda
-            await sql`
-                INSERT INTO audit_events (
-                    model_variant, 
-                    issues, 
-                    fixes, 
-                    autofix_applied, 
-                    has_error, 
-                    error_count, 
-                    warn_count
-                ) VALUES (
-                    ${variant}, 
-                    ${issuesJson}::jsonb, 
-                    ${fixesJson}::jsonb, 
-                    ${autofixApplied}, 
-                    ${hasError}, 
-                    ${errorCount}, 
-                    ${warnCount}
-                );
-            `;
+            await db.insert(auditEvents).values({
+                model_variant: variant,
+                issues: issuesData,
+                fixes: fixesData,
+                autofix_applied: autofixApplied,
+                has_error: hasError,
+                error_count: errorCount,
+                warn_count: warnCount
+            });
         } catch (e) {
             console.error("Telemetry error (DB):", e);
         }
 
-        const doc = sectionsToDocx(fixedSections, data);
+        const doc = generateDocxFromSections(fixedSections, data);
         const buffer = await Packer.toBuffer(doc);
 
-        return new NextResponse(buffer, {
+        return new NextResponse(buffer as any, {
             status: 200,
             headers: {
                 "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -587,10 +618,21 @@ export async function POST(request: NextRequest) {
     }
 }
 
-function determineVariant(d: ReglamentoData): "servicios_10_25" | "construccion_26_50" | "teletrabajo_51_plus" | "unknown" {
-    // Basic heuristic for telemetry segmentation
-    if (d.trabajoRemoto === "si" && (d.numTrabajadores === "51+" || d.numTrabajadores === "100+")) return "teletrabajo_51_plus";
-    if ((d.categoriaRiesgo === "construccion" || d.categoriaRiesgo === "industrial") && (d.numTrabajadores === "26-50" || d.numTrabajadores === "51+")) return "construccion_26_50";
-    if (d.categoriaRiesgo === "servicios_oficina" && d.numTrabajadores === "10-25") return "servicios_10_25";
-    return "unknown";
+function determineVariant(d: ReglamentoData): string {
+    // Robust variant generation: RUBRO_SIZE
+    // Sanitize inputs
+    const rubro = d.rubro ? d.rubro.toLowerCase().replace(/\s+/g, '_') : 'unknown_rubro';
+
+    // Map workers to segment
+    let size = 'unknown_size';
+    if (d.numTrabajadores === '1-9') size = 'micro';
+    else if (d.numTrabajadores === '10-25') size = 'small';
+    else if (d.numTrabajadores === '26-50') size = 'medium';
+    else if (d.numTrabajadores === '51+' || d.numTrabajadores === '100+') size = 'large';
+    else if (d.numTrabajadores) size = d.numTrabajadores.replace(/\+/g, '_plus').replace(/-/g, '_');
+
+    // Telework suffix
+    const suffix = d.trabajoRemoto === 'si' ? '_remote' : '';
+
+    return `${rubro}_${size}${suffix}`;
 }

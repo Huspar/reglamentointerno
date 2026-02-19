@@ -18,7 +18,7 @@ import {
     type ReglamentoData,
     type ReglamentoSection,
     type ContentItem,
-} from "../lib/reglamentoBuilder";
+} from "../lib/builder";
 import * as fs from "fs";
 import * as path from "path";
 

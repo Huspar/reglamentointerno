@@ -2,7 +2,7 @@
 import { Packer, Document, Paragraph, TextRun, AlignmentType } from "docx";
 import * as fs from "fs";
 import * as path from "path";
-import { buildReglamento, ReglamentoData, ReglamentoSection, ContentItem } from "../lib/reglamentoBuilder";
+import { buildReglamento, ReglamentoData, ReglamentoSection, ContentItem } from "../lib/builder";
 import { auditReglamento } from "../lib/reglamentoAuditor";
 import { logAuditEvent, AuditTelemetryEvent } from "../lib/telemetry";
 import { v4 as uuidv4 } from 'uuid';

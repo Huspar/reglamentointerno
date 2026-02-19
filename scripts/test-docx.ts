@@ -7,6 +7,7 @@
  */
 import fs from "fs";
 import path from "path";
+import { buildReglamento, ReglamentoData } from "../lib/builder";
 
 const API = "http://localhost:3000/api/generate-doc";
 

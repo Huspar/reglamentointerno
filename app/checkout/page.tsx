@@ -24,7 +24,7 @@ export default function CheckoutPage() {
         }
     }, [router]);
 
-    const handleDownload = async () => {
+    const handleDownload = async (ignoreWarnings = false) => {
         setDownloading(true);
         setError(null);
         setAuditIssues([]);
@@ -36,7 +36,11 @@ export default function CheckoutPage() {
                 return;
             }
 
-            const res = await fetch("/api/generate-doc", {
+            const endpoint = ignoreWarnings
+                ? "/api/generate-doc?ignoreWarnings=true"
+                : "/api/generate-doc";
+
+            const res = await fetch(endpoint, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: raw,
